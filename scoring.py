@@ -63,44 +63,39 @@ def calculate_communication_score(response_time_hours, last_minute_reschedules):
     return round(communication_score, 1)
 
 
-def calculate_health_score(row):
+def calculate_health_score(row, weights=None):
+    if weights is None:
+        weights = {'delivery': 0.35, 'quality': 0.25, 'financial': 0.25, 'communication': 0.15}
+    
     delivery = calculate_delivery_score(
         row['on_time_rate'],
         row['quantity_fulfillment_rate'],
         row['late_deliveries_last_6_months']
     )
-    
     quality = calculate_quality_score(
         row['defect_rate'],
         row['quality_complaints']
     )
-    
     financial = calculate_financial_score(
-        row['gst_filed_q1'],
-        row['gst_filed_q2'],
-        row['gst_filed_q3'],
-        row['gst_filed_q4'],
+        row['gst_filed_q1'], row['gst_filed_q2'],
+        row['gst_filed_q3'], row['gst_filed_q4'],
         row['advance_payment_requests']
     )
-    
     communication = calculate_communication_score(
         row['response_time_hours'],
         row['last_minute_reschedules']
     )
-    
-    # THE MAIN FORMULA — this is your core domain logic
-    # Delivery 35% + Quality 25% + Financial 25% + Communication 15%
+
+    total = sum(weights.values())
     final_score = (
-        (delivery * 0.35) +
-        (quality * 0.25) +
-        (financial * 0.25) +
-        (communication * 0.15)
+        (delivery * (weights['delivery'] / total)) +
+        (quality * (weights['quality'] / total)) +
+        (financial * (weights['financial'] / total)) +
+        (communication * (weights['communication'] / total))
     )
-    
-    final_score = max(0, min(100, final_score))
-    
+
     return {
-        'health_score': round(final_score, 1),
+        'health_score': round(max(0, min(100, final_score)), 1),
         'delivery_score': delivery,
         'quality_score': quality,
         'financial_score': financial,
@@ -117,11 +112,11 @@ def get_status(score):
         return 'At Risk', '🔴'
 
 
-def process_suppliers(df):
+def process_suppliers(df, weights=None):
     results = []
     
     for _, row in df.iterrows():
-        scores = calculate_health_score(row)
+        scores = calculate_health_score(row, weights)
         status, emoji = get_status(scores['health_score'])
         
         results.append({

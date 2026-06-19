@@ -144,6 +144,19 @@ st.markdown("""
 # sidebar
 with st.sidebar:
     st.header("📂 Upload Data")
+    st.divider()
+    st.header("⚙️ Risk Weights")
+    st.caption("Adjust what matters most to your factory")
+    w_delivery = st.slider("Delivery", 0, 100, 35)
+    w_quality = st.slider("Quality", 0, 100, 25)
+    w_financial = st.slider("Financial / GST", 0, 100, 25)
+    w_comm = st.slider("Communication", 0, 100, 15)
+    user_weights = {
+        'delivery': w_delivery,
+        'quality': w_quality,
+        'financial': w_financial,
+        'communication': w_comm
+    }
     
     uploaded_file = st.file_uploader(
         "Upload Supplier CSV",
@@ -185,7 +198,7 @@ with st.sidebar:
 # main content
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-    suppliers = process_suppliers(df)
+    suppliers = process_suppliers(df, user_weights)
     
     # summary metrics at top
     total = len(suppliers)
@@ -306,6 +319,7 @@ if uploaded_file is not None:
             paper_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(fig2, use_container_width=True)
+        st.caption("📌 Illustrative trend — historical tracking activates after 4 weeks of continuous data collection")
         
         # flags section
         st.subheader("⚠️ Risk Flags")

@@ -85,7 +85,9 @@ def calculate_health_score(row, weights=None):
         row['response_time_hours'],
         row['last_minute_reschedules']
     )
-
+# Core formula — weighted average across 4 supplier health dimensions
+# Weights reflect what matters most to Indian manufacturing SMEs:
+# Delivery is weighted highest because late delivery = idle workers = direct loss
     total = sum(weights.values())
     final_score = (
         (delivery * (weights['delivery'] / total)) +

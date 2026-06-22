@@ -1,0 +1,12 @@
+20/03/2024, 08:14 - Ram Textiles: Bhai aaj nahi hoga delivery
+20/03/2024, 08:15 - You: Kya hua?
+20/03/2024, 08:16 - Ram Textiles: Machine issue ho gaya hai
+20/03/2024, 09:00 - You: Kal pakka?
+20/03/2024, 09:05 - Ram Textiles: Kal pakka bhai
+21/03/2024, 10:00 - Ram Textiles: Thoda late ho jayegi aaj bhi
+21/03/2024, 10:01 - You: Yeh kya ho raha hai
+21/03/2024, 10:02 - Ram Textiles: Sorry bhai problem ho gaya
+22/03/2024, 07:00 - Ram Textiles: Aaj bhi delay ho sakta hai
+22/03/2024, 11:00 - You: This is not acceptable
+22/03/2024, 11:05 - Ram Textiles: Will try to deliver by evening
+22/03/2024, 18:00 - Ram Textiles: Cannot deliver today, postpone to tomorrow

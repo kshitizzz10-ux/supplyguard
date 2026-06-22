@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import os
 from groq import Groq
-
 from dotenv import load_dotenv
 from scoring import process_suppliers, get_status
 import random
@@ -12,375 +11,450 @@ load_dotenv()
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-# page config
 st.set_page_config(
     page_title="SupplyGuard",
     page_icon="🛡️",
     layout="wide"
 )
 
-# simple css to make it look clean
-st.markdown("""
+# dark mode toggle - stored in session so it persists across reruns
+if 'dark_mode' not in st.session_state:
+    st.session_state.dark_mode = True
+
+dark = st.session_state.dark_mode
+
+# just keeping colors in one place so i don't have to change 50 lines if i change theme
+if dark:
+    bg        = "#0d0f1a"
+    card      = "#161827"
+    border    = "#2a2d3e"
+    txt       = "#e8eaf0"
+    txt_soft  = "#8b8fa8"
+    accent    = "#4f8ef7"
+    header_bg = "linear-gradient(135deg, #0d0f1a 0%, #1a1f3a 100%)"
+    score_bg  = "#1a1d2e"
+    icon      = "☀️"
+    mode_label = "Light mode"
+else:
+    bg        = "#f4f6fb"
+    card      = "#ffffff"
+    border    = "#e0e4ef"
+    txt       = "#1a1d2e"
+    txt_soft  = "#6b7280"
+    accent    = "#2563eb"
+    header_bg = "linear-gradient(135deg, #1a1f3a 0%, #2563eb 100%)"
+    score_bg  = "#f0f4ff"
+    icon      = "🌙"
+    mode_label = "Dark mode"
+
+st.markdown(f"""
 <style>
-    .main-header {
-        background: linear-gradient(90deg, #1a1a2e, #16213e);
-        padding: 20px;
+    .stApp {{
+        background-color: {bg};
+        color: {txt};
+    }}
+    section[data-testid="stSidebar"] {{
+        background-color: {card};
+        border-right: 1px solid {border};
+    }}
+    .header-bar {{
+        background: {header_bg};
+        padding: 18px 24px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+    }}
+    .metric-card {{
+        background: {card};
+        border: 1px solid {border};
         border-radius: 10px;
-        margin-bottom: 20px;
-        color: white;
-    }
-    .supplier-card {
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        padding: 15px;
-        margin: 8px 0;
-        cursor: pointer;
-    }
-    .red-card {
-        border-left: 4px solid #ff4444;
-        background-color: #fff5f5;
-    }
-    .yellow-card {
-        border-left: 4px solid #ffaa00;
-        background-color: #fffbf0;
-    }
-    .green-card {
-        border-left: 4px solid #00cc66;
-        background-color: #f0fff8;
-    }
-    .score-big {
-        font-size: 48px;
-        font-weight: bold;
-    }
-    .metric-box {
-        background: #f8f9fa;
-        border-radius: 8px;
-        padding: 12px;
+        padding: 16px 20px;
         text-align: center;
-    }
+    }}
+    .metric-num {{
+        font-size: 32px;
+        font-weight: 700;
+        line-height: 1;
+    }}
+    .metric-label {{
+        font-size: 12px;
+        color: {txt_soft};
+        margin-top: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }}
+    .score-box {{
+        background: {score_bg};
+        border: 1px solid {border};
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        margin-bottom: 16px;
+    }}
+    div[data-testid="stButton"] button {{
+        background: {card};
+        border: 1px solid {border};
+        color: {txt};
+        border-radius: 8px;
+        transition: all 0.15s;
+    }}
+    div[data-testid="stButton"] button:hover {{
+        border-color: {accent};
+        color: {accent};
+    }}
+    .step-card {{
+        background: {card};
+        border: 1px solid {border};
+        border-radius: 12px;
+        padding: 24px 20px;
+        text-align: center;
+    }}
+    .alert-box {{
+        background: rgba(239, 68, 68, 0.08);
+        border: 1px solid rgba(239, 68, 68, 0.25);
+        border-left: 4px solid #ef4444;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        font-size: 14px;
+        color: {txt};
+    }}
+    header[data-testid="stHeader"] {{
+        background: transparent;
+    }}
+    .stCaption, .stCaption p {{
+        color: {txt_soft} !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 
-def generate_weekly_trend(base_score, weeks=6):
-    # generates a fake but realistic trend for the last 6 weeks
+# fake trend data - in production this would come from a DB with historical scores
+# for now generating something that looks realistic around the actual score
+def make_trend(score, weeks=6):
     trend = []
-    current = base_score
-    for i in range(weeks):
-        variation = random.uniform(-8, 8)
-        point = max(0, min(100, current + variation))
-        trend.append(round(point, 1))
-        current = point
-    trend[-1] = base_score  # last point is current actual score
+    current = score
+    for _ in range(weeks):
+        current = max(0, min(100, current + random.uniform(-8, 8)))
+        trend.append(round(current, 1))
+    trend[-1] = score  # last point is always the real current score
     return trend
 
 
-def draft_backup_email(supplier_name, supplier_category, health_score, issues):
+def draft_email_with_ai(supplier_name, category, score, issues):
     prompt = f"""
-You are helping an Indian manufacturing factory owner draft an urgent email to a backup supplier.
+You are helping an Indian manufacturing SME owner write an urgent email to a backup supplier.
 
-Situation:
-- Their current supplier "{supplier_name}" who provides {supplier_category} has a health score of {health_score}/100
-- Key issues identified: {issues}
-- They need to quickly find an alternative supplier
+Context:
+- Current supplier "{supplier_name}" (provides {category}) has dropped to a health score of {score}/100
+- Identified issues: {issues}
+- Need to check if backup supplier can step in
 
-Write a professional but urgent email to a backup supplier requesting:
-1. Availability of {supplier_category} materials
-2. Their current pricing
-3. Earliest possible delivery timeline
+Write a short, professional email asking the backup supplier for:
+1. Availability of {category} materials
+2. Current pricing
+3. Earliest delivery they can commit to
 
-Keep it concise, professional, and suitable for Indian B2B communication.
-Sign it as: Factory Management Team
-
-Just write the email directly, no explanation needed.
+Keep it direct and suitable for Indian B2B. Sign off as: Factory Management Team
+Write only the email. No explanation.
 """
-    response = groq_client.chat.completions.create(
+    resp = groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}]
     )
-    return response.choices[0].message.content
+    return resp.choices[0].message.content
 
 
-def parse_whatsapp_chat(chat_text, supplier_name):
-    delay_keywords_hindi = ['nahi hoga', 'kal pakka', 'thoda late', 'der ho jayegi',
-                            'aaj nahi', 'kal tak', 'parso', 'problem ho gaya']
-    delay_keywords_english = ['delay', 'late', 'cannot deliver', 'not possible today',
-                              'postpone', 'reschedule', 'issue with', 'problem with']
-    chat_lower = chat_text.lower()
-    hindi_count = sum(1 for kw in delay_keywords_hindi if kw in chat_lower)
-    english_count = sum(1 for kw in delay_keywords_english if kw in chat_lower)
-    total_delay_signals = hindi_count + english_count
+# basic keyword scanner for WhatsApp chats
+# not NLP - just looking for delay signals in Hindi and English
+# good enough for the MVP, can upgrade to proper NLP later
+def scan_whatsapp(text, supplier):
+    hindi_signals  = ['nahi hoga', 'kal pakka', 'thoda late', 'der ho jayegi',
+                      'aaj nahi', 'kal tak', 'parso', 'problem ho gaya']
+    english_signals = ['delay', 'late', 'cannot deliver', 'not possible today',
+                       'postpone', 'reschedule', 'issue with', 'problem with']
 
-    if total_delay_signals == 0:
-        risk_level = "Low"
-        risk_color = "green"
-    elif total_delay_signals <= 3:
-        risk_level = "Medium"
-        risk_color = "orange"
+    lower = text.lower()
+    h_count = sum(1 for kw in hindi_signals if kw in lower)
+    e_count = sum(1 for kw in english_signals if kw in lower)
+    total   = h_count + e_count
+
+    if total == 0:
+        risk, color = "Low", "green"
+    elif total <= 3:
+        risk, color = "Medium", "orange"
     else:
-        risk_level = "High"
-        risk_color = "red"
+        risk, color = "High", "red"
 
     return {
-        'total_signals': total_delay_signals,
-        'hindi_signals': hindi_count,
-        'english_signals': english_count,
-        'risk_level': risk_level,
-        'risk_color': risk_color
+        'total': total,
+        'hindi': h_count,
+        'english': e_count,
+        'risk': risk,
+        'color': color
     }
 
-# ---- MAIN APP STARTS HERE ----
 
-# header
-st.markdown("""
-<div class="main-header">
-    <h1 style="margin:0; font-size: 28px;">🛡️ SupplyGuard</h1>
-    <p style="margin:5px 0 0 0; opacity:0.8; font-size:14px;">
-        AI-powered Supplier Risk Monitoring for Indian Manufacturing SMEs
-    </p>
-</div>
-""", unsafe_allow_html=True)
+# top bar - logo left, theme toggle right
+h_col, t_col = st.columns([5, 1])
+with h_col:
+    st.markdown(f"""
+    <div class="header-bar">
+        <div style="font-size:22px; font-weight:700; color:#fff; letter-spacing:-0.3px;">🛡️ SupplyGuard</div>
+        <div style="font-size:13px; color:rgba(255,255,255,0.65); margin-top:3px;">
+            AI-powered Supplier Risk Monitoring · Built for Indian Manufacturing SMEs
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+with t_col:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button(f"{icon} {mode_label}", use_container_width=True):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+
 
 # sidebar
 with st.sidebar:
-    st.header("📂 Upload Data")
+    st.markdown(f"<div style='font-size:17px; font-weight:700; padding:6px 0; color:{txt};'>🛡️ SupplyGuard</div>", unsafe_allow_html=True)
     st.divider()
-    st.header("⚙️ Risk Weights")
-    st.caption("Adjust what matters most to your factory")
-    w_delivery = st.slider("Delivery", 0, 100, 35)
-    w_quality = st.slider("Quality", 0, 100, 25)
-    w_financial = st.slider("Financial / GST", 0, 100, 25)
-    w_comm = st.slider("Communication", 0, 100, 15)
-    user_weights = {
-        'delivery': w_delivery,
-        'quality': w_quality,
-        'financial': w_financial,
-        'communication': w_comm
-    }
-    
+
+    st.markdown(f"<div style='font-size:11px; font-weight:600; color:{txt_soft}; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;'>Upload Data</div>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
-        "Upload Supplier CSV",
+        "Supplier CSV",
         type=['csv'],
-        help="Upload your supplier data in CSV format"
+        help="Tally export or any CSV with supplier data"
     )
-    
+
     st.divider()
-    
-    st.header("📱 WhatsApp Parser")
-    supplier_name_wa = st.text_input("Supplier Name", placeholder="e.g. Ram Textiles")
-    whatsapp_file = st.file_uploader(
-        "Upload WhatsApp Chat Export (.txt)",
-        type=['txt'],
-        help="Export chat from WhatsApp → Chat → Export Chat (without media)"
-    )
-    
-    if whatsapp_file and supplier_name_wa:
-        chat_content = whatsapp_file.read().decode('utf-8', errors='ignore')
-        wa_result = parse_whatsapp_chat(chat_content, supplier_name_wa)
-        
+
+    st.markdown(f"<div style='font-size:11px; font-weight:600; color:{txt_soft}; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;'>Risk Weights</div>", unsafe_allow_html=True)
+    st.caption("Drag to set what matters most to your factory")
+
+    w_del  = st.slider("Delivery",        0, 100, 35)
+    w_qual = st.slider("Quality",         0, 100, 25)
+    w_fin  = st.slider("Financial / GST", 0, 100, 25)
+    w_com  = st.slider("Communication",   0, 100, 15)
+
+    weights = {
+        'delivery':      w_del,
+        'quality':       w_qual,
+        'financial':     w_fin,
+        'communication': w_com
+    }
+
+    st.divider()
+
+    st.markdown(f"<div style='font-size:11px; font-weight:600; color:{txt_soft}; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;'>WhatsApp Parser</div>", unsafe_allow_html=True)
+    st.caption("Paste a supplier name and upload their chat export")
+
+    wa_supplier = st.text_input("Supplier name", placeholder="e.g. Ram Textiles")
+    wa_file     = st.file_uploader("Chat export (.txt)", type=['txt'])
+
+    if wa_file and wa_supplier:
+        chat_text = wa_file.read().decode('utf-8', errors='ignore')
+        result    = scan_whatsapp(chat_text, wa_supplier)
         st.divider()
-        st.subheader(f"Analysis: {supplier_name_wa}")
-        st.metric("Delay Signals Found", wa_result['total_signals'])
-        
-        color = wa_result['risk_color']
-        level = wa_result['risk_level']
-        st.markdown(f"**Communication Risk:** :{color}[{level}]")
-        
-        if wa_result['hindi_signals'] > 0:
-            st.write(f"🔸 Hindi delay signals: {wa_result['hindi_signals']}")
-        if wa_result['english_signals'] > 0:
-            st.write(f"🔸 English delay signals: {wa_result['english_signals']}")
-    
+        st.markdown(f"**{wa_supplier}**")
+        st.metric("Delay signals found", result['total'])
+        st.markdown(f"Risk level: :{result['color']}[**{result['risk']}**]")
+        if result['hindi'] > 0:
+            st.write(f"🔸 Hindi: {result['hindi']} signals")
+        if result['english'] > 0:
+            st.write(f"🔸 English: {result['english']} signals")
+
     st.divider()
-    st.caption("SupplyGuard v1.0 | InnovateZ 2026")
+    st.caption("v1.0 · InnovateZ 2026 · VIT Bhopal")
 
 
-# main content
+# main dashboard - shows when CSV is uploaded
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    suppliers = process_suppliers(df, user_weights)
-    
-    # summary metrics at top
-    total = len(suppliers)
+    df        = pd.read_csv(uploaded_file)
+    suppliers = process_suppliers(df, weights)
+
+    total   = len(suppliers)
     at_risk = sum(1 for s in suppliers if s['status'] == 'At Risk')
-    watch = sum(1 for s in suppliers if s['status'] == 'Watch')
+    watch   = sum(1 for s in suppliers if s['status'] == 'Watch')
     healthy = sum(1 for s in suppliers if s['status'] == 'Healthy')
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Suppliers", total)
-    with col2:
-        st.metric("🔴 At Risk", at_risk, delta=f"-{at_risk} need action", delta_color="inverse")
-    with col3:
-        st.metric("🟡 Watch", watch)
-    with col4:
-        st.metric("🟢 Healthy", healthy)
-    
-    st.divider()
-    
-    # weekly digest box
+
+    # top metrics
+    c1, c2, c3, c4 = st.columns(4)
+    for col, val, label, color in [
+        (c1, total,   "Total Suppliers", txt),
+        (c2, at_risk, "At Risk 🔴",      "#ef4444"),
+        (c3, watch,   "Watch 🟡",        "#f59e0b"),
+        (c4, healthy, "Healthy 🟢",      "#10b981"),
+    ]:
+        with col:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-num" style="color:{color};">{val}</div>
+                <div class="metric-label">{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     if at_risk > 0:
-        risk_names = [s['supplier_name'] for s in suppliers if s['status'] == 'At Risk']
-        st.error(f"⚠️ **Weekly Alert:** {', '.join(risk_names)} {'is' if len(risk_names)==1 else 'are'} at high risk of disruption. Immediate action recommended.")
-    
-    # two column layout
-    left_col, right_col = st.columns([1, 2])
-    
-    with left_col:
-        st.subheader("All Suppliers")
-        st.caption("Click any supplier to see details")
-        
-        selected_supplier = None
-        
-        for supplier in suppliers:
-            score = supplier['health_score']
-            emoji = supplier['emoji']
-            name = supplier['supplier_name']
-            status = supplier['status']
-            
-            if supplier['status'] == 'At Risk':
-                card_class = "red-card"
-            elif supplier['status'] == 'Watch':
-                card_class = "yellow-class"
-            else:
-                card_class = "green-card"
-            
-            if st.button(
-                f"{emoji} {name}  —  {score}/100",
-                key=f"btn_{name}",
-                use_container_width=True
-            ):
-                st.session_state['selected'] = name
-        
-        if 'selected' not in st.session_state and suppliers:
-            st.session_state['selected'] = suppliers[0]['supplier_name']
-    
-    with right_col:
-        selected_name = st.session_state.get('selected', suppliers[0]['supplier_name'])
-        supplier = next((s for s in suppliers if s['supplier_name'] == selected_name), suppliers[0])
-        
-        score = supplier['health_score']
-        status = supplier['status']
-        emoji = supplier['emoji']
-        
-        st.subheader(f"{emoji} {supplier['supplier_name']}")
-        st.caption(f"{supplier['category']} supplier · {supplier['location']}")
-        
-        # big score display
-        score_color = "#ff4444" if status == "At Risk" else "#ffaa00" if status == "Watch" else "#00cc66"
+        names = [s['supplier_name'] for s in suppliers if s['status'] == 'At Risk']
         st.markdown(f"""
-        <div style="text-align:center; padding: 15px; background:#f8f9fa; border-radius:10px; margin-bottom:15px;">
-            <div style="font-size:56px; font-weight:bold; color:{score_color};">{score}</div>
-            <div style="font-size:18px; color:#666;">Health Score / 100</div>
-            <div style="font-size:16px; margin-top:5px;">{emoji} {status}</div>
+        <div class="alert-box">
+            ⚠️ <strong>Weekly Alert —</strong> {', '.join(names)} {'is' if len(names) == 1 else 'are'} at high risk of disruption. Take action now.
         </div>
         """, unsafe_allow_html=True)
-        
-        # score breakdown chart
+
+    left, right = st.columns([1, 2])
+
+    with left:
+        st.markdown(f"<div style='font-size:14px; font-weight:600; color:{txt}; margin-bottom:4px;'>All Suppliers</div>", unsafe_allow_html=True)
+        st.caption("Click any to see breakdown")
+
+        for s in suppliers:
+            if st.button(f"{s['emoji']} {s['supplier_name']}  ·  {s['health_score']}/100",
+                         key=f"btn_{s['supplier_name']}", use_container_width=True):
+                st.session_state['selected'] = s['supplier_name']
+
+        if 'selected' not in st.session_state:
+            st.session_state['selected'] = suppliers[0]['supplier_name']
+
+    with right:
+        sel_name = st.session_state.get('selected', suppliers[0]['supplier_name'])
+        s        = next((x for x in suppliers if x['supplier_name'] == sel_name), suppliers[0])
+
+        score  = s['health_score']
+        status = s['status']
+        sc     = "#ef4444" if status == "At Risk" else "#f59e0b" if status == "Watch" else "#10b981"
+
+        st.markdown(f"<div style='font-size:18px; font-weight:700; color:{txt};'>{s['emoji']} {s['supplier_name']}</div>", unsafe_allow_html=True)
+        st.caption(f"{s['category']} · {s['location']}")
+
+        # the big score number
+        st.markdown(f"""
+        <div class="score-box">
+            <div style="font-size:62px; font-weight:800; color:{sc}; line-height:1;">{score}</div>
+            <div style="font-size:13px; color:{txt_soft}; margin-top:6px;">Health Score / 100</div>
+            <div style="font-size:13px; font-weight:600; margin-top:4px; color:{sc};">{s['emoji']} {status}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # score breakdown bar chart
+        scores_list = [s['delivery_score'], s['quality_score'], s['financial_score'], s['communication_score']]
         fig = go.Figure(go.Bar(
-            x=[supplier['delivery_score'], supplier['quality_score'],
-               supplier['financial_score'], supplier['communication_score']],
+            x=scores_list,
             y=['Delivery (35%)', 'Quality (25%)', 'Financial (25%)', 'Communication (15%)'],
             orientation='h',
-            marker_color=[
-                '#ff4444' if supplier['delivery_score'] < 40 else '#ffaa00' if supplier['delivery_score'] < 70 else '#00cc66',
-                '#ff4444' if supplier['quality_score'] < 40 else '#ffaa00' if supplier['quality_score'] < 70 else '#00cc66',
-                '#ff4444' if supplier['financial_score'] < 40 else '#ffaa00' if supplier['financial_score'] < 70 else '#00cc66',
-                '#ff4444' if supplier['communication_score'] < 40 else '#ffaa00' if supplier['communication_score'] < 70 else '#00cc66',
-            ]
+            marker_color=['#ef4444' if v < 40 else '#f59e0b' if v < 70 else '#10b981' for v in scores_list]
         ))
         fig.update_layout(
             title="Score Breakdown",
             xaxis_range=[0, 100],
-            height=250,
-            margin=dict(l=0, r=0, t=40, b=0),
+            height=220,
+            margin=dict(l=0, r=0, t=36, b=0),
             plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)'
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(color=txt),
+            title_font=dict(color=txt, size=13)
         )
         st.plotly_chart(fig, use_container_width=True)
-        
-        # trend chart
-        trend_data = generate_weekly_trend(score)
-        weeks = ['6 weeks ago', '5 weeks ago', '4 weeks ago', '3 weeks ago', 'Last week', 'This week']
-        
-        fig2 = go.Figure(go.Scatter(
-            x=weeks,
-            y=trend_data,
+
+        # trend - illustrative for now
+        trend = make_trend(score)
+        fig2  = go.Figure(go.Scatter(
+            x=['6w ago', '5w ago', '4w ago', '3w ago', 'Last week', 'Now'],
+            y=trend,
             mode='lines+markers',
-            line=dict(color=score_color, width=2),
-            marker=dict(size=6)
+            line=dict(color=sc, width=2),
+            marker=dict(size=5),
+            fill='tozeroy',
+            fillcolor=f"rgba({int(sc[1:3],16)},{int(sc[3:5],16)},{int(sc[5:7],16)},0.07)"
         ))
         fig2.update_layout(
-            title="Score Trend (Last 6 Weeks)",
+            title="Score Trend",
             yaxis_range=[0, 100],
-            height=200,
-            margin=dict(l=0, r=0, t=40, b=0),
+            height=180,
+            margin=dict(l=0, r=0, t=36, b=0),
             plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)'
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(color=txt),
+            title_font=dict(color=txt, size=13)
         )
         st.plotly_chart(fig2, use_container_width=True)
-        st.caption("📌 Illustrative trend — historical tracking activates after 4 weeks of continuous data collection")
-        
-        # flags section
-        st.subheader("⚠️ Risk Flags")
-        
+        st.caption("📌 Illustrative — real trend tracking needs a persistent DB (Phase 2)")
+
+        # risk flags
+        st.markdown(f"<div style='font-size:14px; font-weight:600; color:{txt}; margin: 10px 0 6px;'>⚠️ Risk Flags</div>", unsafe_allow_html=True)
+
         flags = []
-        if supplier['late_deliveries'] >= 3:
-            flags.append(f"🔴 {supplier['late_deliveries']} late deliveries in last 6 months")
-        if supplier['defect_rate'] >= 5:
-            flags.append(f"🔴 High defect rate: {supplier['defect_rate']}%")
-        
-        gst_missed = sum(1 for q in [supplier['gst_q1'], supplier['gst_q2'], 
-                                      supplier['gst_q3'], supplier['gst_q4']] 
-                        if str(q).strip().lower() == 'no')
-        if gst_missed >= 2:
-            flags.append(f"🔴 GST not filed for {gst_missed} quarters — financial distress signal")
-        if supplier['advance_requests'] >= 2:
-            flags.append(f"🟡 {supplier['advance_requests']} advance payment requests — cash flow concern")
-        
+        if s['late_deliveries'] >= 3:
+            flags.append(f"🔴 {s['late_deliveries']} late deliveries in last 6 months")
+        if s['defect_rate'] >= 5:
+            flags.append(f"🔴 Defect rate: {s['defect_rate']}% — above acceptable threshold")
+        gst_no = sum(1 for q in [s['gst_q1'], s['gst_q2'], s['gst_q3'], s['gst_q4']]
+                     if str(q).strip().lower() == 'no')
+        if gst_no >= 2:
+            flags.append(f"🔴 GST not filed for {gst_no} quarters — possible financial stress")
+        if s['advance_requests'] >= 2:
+            flags.append(f"🟡 {s['advance_requests']} advance payment requests — cash flow concern")
+
         if flags:
-            for flag in flags:
-                st.write(flag)
+            for f in flags:
+                st.write(f)
         else:
-            st.write("✅ No major risk flags detected")
-        
-        # draft email button — only for at-risk suppliers
+            st.write("✅ No major flags — supplier looks stable")
+
+        # AI email drafting - only show for red suppliers
         if status == 'At Risk':
             st.divider()
-            st.subheader("🤖 AI Action")
-            
-            if st.button("📧 Draft Backup Supplier Email", type="primary", use_container_width=True):
-                with st.spinner("Gemini is drafting your email..."):
-                    issues_list = ", ".join(flags) if flags else "poor overall performance"
-                    email_content = draft_backup_email(
-                        supplier['supplier_name'],
-                        supplier['category'],
-                        score,
-                        issues_list
-                    )
-                    st.success("✅ Email drafted successfully!")
-                    st.text_area(
-                        "Ready to send — review and copy:",
-                        value=email_content,
-                        height=300
-                    )
-                    st.caption("💡 Review this email before sending. SupplyGuard drafts, you decide.")
+            st.markdown(f"<div style='font-size:14px; font-weight:600; color:{txt}; margin-bottom:4px;'>🤖 AI Action</div>", unsafe_allow_html=True)
+            st.caption("Clicks the risk data above and drafts a backup supplier email for you to review.")
 
+            if st.button("📧 Draft Backup Supplier Email", type="primary", use_container_width=True):
+                with st.spinner("Writing email..."):
+                    issues = ", ".join(flags) if flags else "consistent underperformance"
+                    email  = draft_email_with_ai(s['supplier_name'], s['category'], score, issues)
+                    st.success("✅ Done — review before sending")
+                    st.text_area("Your email draft:", value=email, height=280)
+                    st.caption("SupplyGuard drafts. You send.")
+
+# landing page - shown before any file is uploaded
 else:
-    # landing state when no file uploaded
-    st.markdown("""
-    <div style="text-align:center; padding:60px 20px;">
-        <div style="font-size:64px;">🛡️</div>
-        <h2>Welcome to SupplyGuard</h2>
-        <p style="color:#666; font-size:16px; max-width:500px; margin:0 auto;">
-            Upload your supplier CSV file from the sidebar to get started. 
-            SupplyGuard will automatically score every supplier and flag who needs your attention.
-        </p>
-        <br>
-        <p style="color:#999; font-size:14px;">
-            📊 Supports Tally exports and Excel/CSV formats
-        </p>
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="text-align:center; padding: 28px 0 20px;">
+        <div style="font-size:50px; margin-bottom:10px;">🛡️</div>
+        <div style="font-size:24px; font-weight:700; color:{txt}; margin-bottom:8px;">
+            Know before your supplier fails.
+        </div>
+        <div style="font-size:15px; color:{txt_soft}; max-width:420px; margin:0 auto; line-height:1.6;">
+            Upload your supplier data. SupplyGuard scores every vendor,
+            flags who's about to disrupt you, and drafts the email to your backup — automatically.
+        </div>
     </div>
     """, unsafe_allow_html=True)
-    
-    st.info("👈 Upload your supplier CSV from the sidebar to begin")
+
+    c1, c2, c3 = st.columns(3)
+    for col, icon_s, title, desc in [
+        (c1, "📂", "Upload", "Drop your supplier CSV or Tally export. No setup needed."),
+        (c2, "📊", "Score",  "Every supplier gets a 0–100 health score across 4 dimensions."),
+        (c3, "⚡", "Act",    "One click and the AI drafts your backup supplier email."),
+    ]:
+        with col:
+            st.markdown(f"""
+            <div class="step-card">
+                <div style="font-size:34px; margin-bottom:10px;">{icon_s}</div>
+                <div style="font-size:15px; font-weight:600; color:{txt}; margin-bottom:6px;">{title}</div>
+                <div style="font-size:13px; color:{txt_soft}; line-height:1.5;">{desc}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="text-align:center; padding:18px 24px; background:{card}; border:1px solid {border};
+                border-radius:12px; max-width:460px; margin:0 auto;">
+        <div style="font-size:13px; color:{txt_soft}; margin-bottom:6px;">Try it right now</div>
+        <div style="font-size:14px; color:{txt}; font-weight:500;">
+            Upload <code>demo_data.csv</code> from the sidebar
+        </div>
+        <div style="font-size:12px; color:{txt_soft}; margin-top:6px;">
+            Ram Textiles will go 🔴 red. Click it. Watch the AI act.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)

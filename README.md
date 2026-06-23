@@ -1,94 +1,26 @@
 # SupplyGuard 🛡️
-**AI-powered Supplier Risk Monitoring for Indian Manufacturing SMEs**
+**AI-Powered Supplier Risk Monitoring for Indian Manufacturing SMEs**  
+*Built for InnovateZ 2026 | Zentiti | VIT Bhopal*
 
-Built for InnovateZ 2026 | Zentiti | VIT Bhopal
-
----
-
-## The Problem
-
-A garment factory owner in Bhopal has 14 suppliers. One morning his 
-fabric supplier texts "bhai aaj nahi hoga." No warning. 60 workers 
-sitting idle. ₹80,000/day going out with zero output.
-
-The scary part? The warning signs were there for months — late 
-deliveries, dropping quality, GST not filed. All sitting in his own 
-data. Nobody connected the dots.
-
-SupplyGuard connects the dots.
+![Python](https://img.shields.io/badge/python-v3.10+-blue.svg)
+![Streamlit](https://img.shields.io/badge/streamlit-1.32+-red.svg)
+![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B-orange.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 ---
 
-## What it does
+## The SME Bottleneck
 
-Upload your supplier data (Tally export or a simple CSV). SupplyGuard 
-scores every supplier from 0-100 based on delivery history, quality, 
-financial health, and communication patterns. Red suppliers float to 
-the top. One click drafts an email to your backup vendor.
+A garment factory owner in Bhopal manages 14 active suppliers. On Tuesday morning, his primary fabric vendor texts: *"Bhai, aaj delivery nahi hoga."* With zero buffer stock, the assembly line stalls. Sixty workers sit idle, burning **₹80,000/day** in overhead with zero unfulfilled output. 
 
-No IT team needed. No expensive software. Just upload and go.
+The tragedy? The warning signs were sitting inside the owner's own systems for months—late challans in Tally, a dropping quality pass-rate, and missed quarterly GST filings. But because Tally doesn't talk to WhatsApp, the owner only discovers the supply chain failure at the exact moment the assembly line stops.
 
----
-
-## Running it locally
-
-```bash
-git clone https://github.com/kshitizzz10-ux/supplyguard.git
-cd supplyguard
-python -m venv venv
-venv\Scripts\activate
-pip install streamlit pandas plotly groq python-dotenv
-```
-
-Create a `.env` file:
-GROQ_API_KEY=your_key_here
-
-Run:
-```bash
-streamlit run app.py
-```
-
-Upload `demo_data.csv` to see it work. Ram Textiles will go red.
+**SupplyGuard connects the dots automatically.**
 
 ---
 
-## How the scoring works
+## Architectural Philosophy: The "Boundary of Determinism"
 
-Four dimensions, weighted by how much each typically matters to 
-a manufacturing SME:
+We explicitly rejected the standard hackathon trend of passing raw tabular data to an autonomous LLM agent. Large Language Models are fundamentally unstable at multi-variable, clamped floating-point mathematics; handing an SME's raw financial ledger to an auto-regressive text generator introduces math hallucinations that can mask real stockout risks. 
 
-| Dimension | Weight | What it measures |
-|-----------|--------|-----------------|
-| Delivery | 35% | On-time rate, quantity fulfilled, late deliveries |
-| Quality | 25% | Defect rate, complaints filed |
-| Financial | 25% | GST filing regularity, advance payment requests |
-| Communication | 15% | Response time, last-minute reschedules |
-
----
-
-## Tech used
-
-- Streamlit — frontend
-- Pandas — data processing  
-- Groq (Llama 3.3 70B) — email drafting
-- Python — scoring engine
-- WhatsApp .txt parser — keyword-based for now, NLP in v2
-
----
-
-## What's real vs what's planned
-
-**Working:**
-- CSV upload and supplier scoring
-- Risk flag detection
-- AI email drafting for at-risk suppliers
-- WhatsApp chat delay signal parser
-
-**Mocked / Phase 2:**
-- GST check uses CSV column, not live government API
-- Trend chart uses illustrative data, not historical DB
-- Voice input and challan scanning not yet built
-
----
-
-*Made by Kshitiz Goyal | CSE AIML | VIT Bhopal*
+SupplyGuard enforces a **hybrid intelligence pipeline**: strict, un-hallucinatable deterministic Python for the risk math, and zero-shot LLM orchestration strictly reserved for human communication synthesis.
